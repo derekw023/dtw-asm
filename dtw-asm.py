@@ -29,7 +29,7 @@ else:
 				"NOT":	int("0b1010", 0),
 				"SHRA":	int("0b1011", 0),
 				"ROTR":	int("0b1100", 0),
-				"MADD":	int("0b1110", 0),
+				"ADDV":	int("0b1110", 0),
 				"MSUB":	int("0b1111", 0),
 				"JMP":	int("0b1101", 0),
 				"JMPC":	int("0b1101", 0),
@@ -52,13 +52,21 @@ JMP_conditions = {	"JMP":		int("0b00000", 0),
 					"JMPNN":	int("0b10110", 0),
 					"JMPNV":	int("0b11010", 0),
 					"JMPNZ":	int("0b11100", 0)}
+##### Constant array with ASCII test data, specifically for use in Lab10
+##### accessed by initializing a .array with content "Lab10"
+Lab10_array = []
+for i in range(0, 64):
+	Lab10_array.append((ord("D") << 7) + ord("E"))
+	Lab10_array.append((ord("a") << 7) + ord("d"))
+	Lab10_array.append((ord("4") << 7) + ord("2"))
+	Lab10_array.append((ord(",") << 7) + ord(" "))
 
 # Functions are provided for reusability
 def parse_register(register):
 	if not re.search(r'^[r|R]', register): 
 		print("Error: {0} instructions require a valid register as the first argument, denoted by R or r!!!!!\nExpected R\d, got {1}".format(instruction['mnemonic'], register))
 		sys.exit(2)
-	register = int(re.sub(r'^[R|r]', '', register)) # Convert to register number
+	register = int(re.sub(r'^[R|r]', '', register), 0) # Convert to register number
 	if register > 31: 
 		print("Error: This processor only has 32 registers, {0} is invalid for this architecture".format(register))
 		sys.exit(2)
@@ -117,7 +125,7 @@ global_directives={
 		"JNV":		"JMPNV",
 		"JNZ":		"JMPNZ"}
 for directive in asm['directives']:
-	if directive[0] == ".equ": global_directives[directive[1]] = directive[2]
+	if directive['list'][0] == ".equ": global_directives[directive['list'][1]] = directive['list'][2]
 	else: 
 		print("Error: Directive {0} not recognized!") # If directive not recognized, error out and set exit flag
 		EXIT_STATUS = 2
@@ -126,8 +134,13 @@ for directive in asm['directives']:
 global_constants = {}
 for constant in asm['constants']:
 	if constant['list'][0] == ".word": global_constants[constant['list'][1]] = constant['list'][2]
+	elif constant['list'][0] == ".array":
+		if constant['list'][2] == "Lab10":
+			global_constants[constant['list'][1]] = Lab10_array # predefined, see code above 
+		else:
+			global_constants[constant['list'][1]] = constant['list'][2:] 
 	else: 
-		print("Error: Constant {0} not recognized!") # If constant not recognized, error out and set exit flag
+		print("Error: Constant {0} not recognized!".format(constant['list'])) # If constant not recognized, error out and set exit flag
 		EXIT_STATUS = 2
 
 ##### Substitute directives in code section
@@ -144,11 +157,11 @@ for line_number, line in enumerate(asm['code']):
 	instruction['mnemonic'] = line['list'].pop(0).upper()
 
 	# All of these instructions use a register as the first operand, parse the register number and push it onto the instruction dict
-	if instruction['mnemonic'] in ['ADD', 'ADDC', 'SUB', 'SUBC', 'AND', 'OR', 'NOT', 'SHRA', 'ROTR', 'LD', 'ST', 'CPY', 'SWAP']: 
+	if instruction['mnemonic'] in ['ADDV', 'ADD', 'ADDC', 'SUB', 'SUBC', 'AND', 'OR', 'NOT', 'SHRA', 'ROTR', 'LD', 'ST', 'CPY', 'SWAP']: 
 		instruction['Ri'] = parse_register(line['list'].pop(0))
 	
 	# Parse and interpret the second operand for register-register instructions
-	if instruction['mnemonic'] in ['ADD', 'SUB', 'AND', 'OR', 'CPY', 'SWAP']: 
+	if instruction['mnemonic'] in ['ADDV', 'ADD', 'SUB', 'AND', 'OR', 'CPY', 'SWAP']: 
 		instruction['Rj'] = parse_register(line['list'].pop(0))
 	
 	# For Add constant and Sub constant, take the constant and put it in Rj
@@ -216,13 +229,19 @@ if EXIT_STATUS > 1: sys.exit(EXIT_STATUS)
 # Allocate constants
 for constant in global_constants:
 	global_labels[constant] = instruction_address # make a label for constants, syntax like @constant_name
-	ram_prep.append({'mnemonic': 'CONST', 'IW0': int(global_constants[constant], 0), 'comment': 'Constant: {}'.format(constant)})# setup the value of the constant
+	if type(global_constants[constant]) is list: #Handle arrays
+		for i, element in enumerate(global_constants[constant]):
+			ram_prep.append({'mnemonic': 'CONST', 'IW0': int(element), 'comment': 'Array {}[{}]'.format(constant, i)})
+			instruction_address += 1
+	else: 
+		ram_prep.append({'mnemonic': 'CONST', 'IW0': int(global_constants[constant], 0), 'comment': 'Constant: {}'.format(constant)})# setup the value of the constant
+		instruction_address += 1
 
 if args.verbose:
 	for word in ram_prep: print(json.dumps(word, indent=True, sort_keys=True))
 RAM_OUT = []
 for instruction in ram_prep:
-	if instruction['mnemonic'] in ['ADDC', 'SUBC', 'SHRA', 'ROTR', 'ADD', 'SUB', 'AND', 'OR', 'NOT', 'CPY', 'SWAP']: # Do single word instructions(IE register-register instructions)
+	if instruction['mnemonic'] in ['ADDC', 'SUBC', 'SHRA', 'ROTR', 'ADD', 'ADDV', 'SUB', 'AND', 'OR', 'NOT', 'CPY', 'SWAP']: # Do single word instructions(IE register-register instructions)
 		if 'Ri' in instruction and 'Rj' in instruction and 'mnemonic' in instruction:
 			IW0 = (opcodes[instruction['mnemonic']] << 10) + (instruction['Ri'] << 5) + instruction['Rj']
 			RAM_OUT.append({'content': IW0, 'comment': instruction['comment']})
@@ -244,7 +263,7 @@ with open(args.outfile, 'w') as outfile:
 	outfile.write("-- Memory file\n--Source file: {0}\n--Assembled for DTWRISC521 ISA".format(args.asm_file))
 	outfile.write('\n')
 	outfile.write('WIDTH = 14;\n')
-	outfile.write('DEPTH = 1024;\n')
+	outfile.write('DEPTH = 16000;\n')
 	outfile.write('\n')
 	outfile.write('ADDRESS_RADIX = HEX;\n')
 	outfile.write('DATA_RADIX = HEX;\n')
