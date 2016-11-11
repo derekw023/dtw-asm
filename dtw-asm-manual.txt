@@ -1,0 +1,86 @@
+NAME
+	dtw-asm.py -- assemble a sequence of assembly instructions into a *.mif file for the dtw-RISC521 processor
+
+SYNOPSIS
+	dtw-asm.py [-h] [-o OUTFILE] [--opcodes OPCODES] [-v] asm_file
+
+DESCRIPTION
+	dtw-asm.py is a python script to take assembly files in a specific syntax and generate *.mif files compliant with Quartus II
+	to initialize the memory of the DTW-RISC521 processor with a program and data. It currently implements 14 instructions, the
+	remaining opcodes are reserved for later additions to the instruction set. THe processor contains 32 registers, and operates
+	on a 14-bit data and memory address bus. 
+
+OPTIONS:
+	positional arguments:
+		asm_file              Assembly directives to assemble
+
+	optional arguments:
+		-h, --help            show this help message and exit
+		-o OUTFILE, --outfile OUTFILE Output MIF format file for FPGA program, defaults to "asm-out.mif" in the current directory
+		--opcodes OPCODES     JSON Definition file to map mnemonics to opcodes (NOT IMPLEMENTED AT THIS TIME)
+		-v, --verbose         Generate verbose output
+
+ASSEMBLY SYNTAX
+	There is a loose syntax, loosely based on the provided syntax from dxp.txt, and otherwise inspired by thge general syntax used
+	by the MSP430 assembler and environment. 
+
+	In general, every line will start with a mnemonic or assembler directive. assembler commands begin with a ".", and mnemonics
+	are described below in the description of the code section. mnemonics are not allowed outside of the code section, and only
+	certain directives for the assembler are allowed in certain sections
+
+	Following the first syllable of the line and one or more whitespace characters, one or more arguments will follow. a pair of
+	arguments will be separated by a comma and optional whitespace. All lines must be terminated with a semicolon, all text between
+	the semicolon and the end of the line will be ignored, this is a good place for comments 
+	
+	SECTIONS 
+	There are 3 sections defined in the assembly file, "directives", "constants", and "code". These sections are denoted by
+	section labels, of the form ".section_label" and ".endsection_label". All text between these flags will be parsed according to
+	the section it is in. Tex outside of these sections will be ignored, and a warning will show indicating which lines are being
+	ignored. The syntax and allowed arguments/commands are listed below 
+	
+	DIRECTIVES SECTION
+	The directives section is used for assembler directives, denoted by the command ".equ". The second and third syllables are the
+	name and value of the directive, respectively. A text search will be performed on the code section and all instances of the
+	name will be replaced with the value, this is useful for defining compile-time constants or constant address pointers
+
+	CONSTANTS SECTION
+	Currently the only command implemented here is ".word". This will place individual words of data at the end of the program
+	memory, in effect allowing constants to be initialized. Coincidentally, since this processor is built on a Von Neumann
+	architecture, and all memory is stored in RAM, this also works for reserving memory for single data values. The address of
+	the constant may be referenced the same way as other labels below, "@constant_name" will be replaced with the address of the
+	constant anywhere is appears in the code section. 
+
+	CODE SECTION
+	All assembly instructions should be placed in this section, in sequence. A line may optionally begin with a label, of the form
+	"@label_name", this will mark the line with the label, and all invocations of that label will point back to this instruction
+	word. The same syntax can also be used in place of an address, and the address the label points to, either an instruction word
+	or data from the constants section, will be inserted in the label's place at assembly time. Opcodes and legal arguments are 
+	listed below:
+
+	LD|LOAD		Rx, @address;-	Loads a word from memory at @address into Rx (where x is a number from 0-31)
+	ST|STORE	Rx, @address;-	Stores the value of Rx in memory at @address
+	CPY|COPY	Ri, Rj;	-	Copies the value of Rj to Ri
+	SWAP		Ri, Rj;	-	Swaps the values of Ri and Rj
+	ADD			Ri, Rj;	-	Adds the value of Rj to Ri, and writes the result back to Ri
+	SUB			Ri, Rj;	-	Subtracts the value of Rj from Ri, and writes the result back to Ri
+	ADDC	Ri, constant;-	Subtracts the constant from Ri, the constant mus be either a decimal or hexadecimal integer
+	SUBC	Ri, constant;-	Adds the constant to Ri, the constant mus be either a decimal or hexadecimal integer
+	AND			Ri, Rj;	-	Writes the bitwise AND of Ri and Rj to Ri
+	OR			Ri, Rj;	-	Writes the logical OR of Ri and Rj to Rj
+	NOT			Ri;		-	Bitwise inverts Ri
+	SHRA		Ri, cons;-	Shifts right (arithmetic) Ri by const bits, up to 14 is legal
+	ROTR		Ri, cons;-	Rotates Ri right, through carry by cons bits, up to 14 is legal
+	JMP			@address;-	Unconditional Jump, will update the program counter to @address and branch to that instruction
+	JMP[C|N|V|Z|NC|NN|NV|NZ] @address;-	Jump with various conditions, C|N|V|Z will jump if the respective status bit is 1,
+										N[C|N|V|Z] will jump only if the specified status bit is 0
+
+	ADDRESSING MODES
+	The assembler supports direct and register-indexed addressing modes. An address may be written one of two ways, listed below:
+		LD	R1, 0x3EEF; Direct, value at 0x3EEF will be used
+		ST	R2, 0x3EEF[R1]; register indexed. The value stored at 0x3EEF+<value in R1> will be used
+	Both of the above forms support labels also, as shown below:
+		LD	R1, @foo; Direct, value at @foo will be used
+		ST	R2, @foo[R1]; register indexed. The value stored at @foo+<value in R1> will be used
+	This syntax applies anywhere an address is used, ie for all LD, ST, and JMP instructions. HOWEVER: R0 cannot be used, this
+	procesor is hardcoded to interpret an index with R0 as direct addressing mode, to eliminate the need for separate address mode
+	bits in the instruction word. 
