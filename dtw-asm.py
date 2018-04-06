@@ -86,7 +86,7 @@ with open(args.asm_file, 'r') as infile:
 		line = line.strip() 
 		if len(line) == 0: continue # Skip empty lines
 		if line[0] == ";": continue	# Skip lines that only contain comments
-		if not re.search(r';.*$', line): print('Warning: Line {0} missing semicolon')
+		if not re.search(r';.*$', line): print('Warning: Line {0} missing semicolon'.format(i + 1))
 		line = re.sub(r';.*$', '', line) # Strip out comments using semicolon as comment character
 		line = re.split(r'[\s,]+', line.strip())
 		# line contains parsed assembly code, interpret section headers and divide statements into their respective sections
@@ -138,7 +138,7 @@ for constant in asm['constants']:
 		if constant['list'][2] == "Lab10":
 			global_constants[constant['list'][1]] = Lab10_array # predefined, see code above 
 		else:
-			global_constants[constant['list'][1]] = constant['list'][2:] 
+			global_constants[constant['list'][1]] = [0 for i in range(0, int(constant['list'][2], 0))]
 	else: 
 		print("Error: Constant {0} not recognized!".format(constant['list'])) # If constant not recognized, error out and set exit flag
 		EXIT_STATUS = 2
@@ -157,7 +157,7 @@ for line_number, line in enumerate(asm['code']):
 	instruction['mnemonic'] = line['list'].pop(0).upper()
 
 	# All of these instructions use a register as the first operand, parse the register number and push it onto the instruction dict
-	if instruction['mnemonic'] in ['ADDV', 'ADD', 'ADDC', 'SUB', 'SUBC', 'AND', 'OR', 'NOT', 'SHRA', 'ROTR', 'LD', 'ST', 'CPY', 'SWAP']: 
+	if instruction['mnemonic'] in ['ADDV', 'ADD', 'ADDC', 'SUB', 'SUBC', 'AND', 'OR', 'NOT', 'SHRA', 'ROTR', 'CPY', 'SWAP']: 
 		instruction['Ri'] = parse_register(line['list'].pop(0))
 	
 	# Parse and interpret the second operand for register-register instructions
@@ -177,12 +177,13 @@ for line_number, line in enumerate(asm['code']):
 	# -the appropriate IW1 and Rj to point to the right RAM location
 	# Also need to implement labeling to point to constants and initialized variables from directives section
 	if instruction['mnemonic'] in ['LD', 'ST']:
+		instruction['Rj'] = parse_register(line['list'].pop(0))
 		address = line['list'].pop(0)
-		# Determine general form: register indexed or immediate - indexed form is 0xBeEF[Rj] or @LABEL[Rj]
+		# Determine general form: register indexed or immediate - indexed form is 0xBeEF[Ri] or @LABEL[Ri]
 		if re.search(r'\[[R|r].*\]', address):
-			instruction['Rj'] = parse_register(re.search(r'\[[R|r].*\]', address).group(0).strip('\[\]'))
+			instruction['Ri'] = parse_register(re.search(r'\[[R|r].*\]', address).group(0).strip('\[\]'))
 			address = re.sub(r'\[[R|r].*\]', '', address)
-		else: instruction['Rj'] = 0
+		else: instruction['Ri'] = 0
 
 		# If a label is included in the line, flag that we need it replaced. IW1 empty.
 		if address[0] is '@':
@@ -263,7 +264,7 @@ with open(args.outfile, 'w') as outfile:
 	outfile.write("-- Memory file\n--Source file: {0}\n--Assembled for DTWRISC521 ISA".format(args.asm_file))
 	outfile.write('\n')
 	outfile.write('WIDTH = 14;\n')
-	outfile.write('DEPTH = 16000;\n')
+	outfile.write('DEPTH = 16128;\n')
 	outfile.write('\n')
 	outfile.write('ADDRESS_RADIX = HEX;\n')
 	outfile.write('DATA_RADIX = HEX;\n')
@@ -272,6 +273,7 @@ with open(args.outfile, 'w') as outfile:
 	for word in RAM_OUT:
 		outfile.write('{0:X}\t:\t{1:04X}; %{2}%\n'.format(address, word['content'], word['comment'].strip()))
 		address += 1
+	outfile.write('[{0:X}..3EFF]\t:\t0;\n'.format(address))
 	outfile.write('END;\n')
 
 sys.exit(EXIT_STATUS)
